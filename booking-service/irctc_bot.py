@@ -1,12 +1,20 @@
 """
 IRCTC Booking Automation using Playwright.
 
+Supports both Normal (General/GN) and Tatkal quota booking.
+
 Automates:
 1. Login to IRCTC
 2. Search trains (source → destination, date, class, quota)
-3. Select best available Tatkal train
+3. Select train (best available for Normal; Tatkal if specified)
 4. Fill passenger details
 5. Proceed to payment (GPay UPI or saved card)
+
+Quota behaviour:
+- GN  (General/Normal) → books at normal fare, no extra charge
+- TATKAL → Tatkal quota, higher fare, opens 1 day before travel at 10 AM (AC) / 11 AM (non-AC)
+- PT  (Premium Tatkal) → dynamic pricing Tatkal
+- LD  (Ladies) → ladies quota
 """
 
 import os
@@ -70,6 +78,10 @@ class IRCTCBot:
             return status
 
     async def _run_booking(self, page: Page, req: BookingRequest) -> BookingStatus:
+        quota_val = req.quota.value if hasattr(req.quota, "value") else req.quota
+        print(f"[booking] {req.source}→{req.destination} | {req.journey_date} | "
+              f"Class:{req.travel_class} | Quota:{quota_val} | Pax:{len(req.passengers)}")
+
         # ── Step 1: Login ──────────────────────────────────────────────────────
         await self._login(page)
 
@@ -164,9 +176,18 @@ class IRCTCBot:
         await page.select_option("select[formcontrolname='journeyClass'], .journeyClass select",
                                   value=req.travel_class.value)
 
-        # Quota
-        await page.select_option("select[formcontrolname='journeyQuota'], .quota select",
-                                  value=req.quota.value)
+        # Quota — map our enum values to IRCTC dropdown values
+        quota_val = req.quota.value if hasattr(req.quota, "value") else req.quota
+        quota_map = {"GN": "GN", "TATKAL": "TQ", "PT": "PT", "LD": "LD"}
+        irctc_quota = quota_map.get(quota_val, "GN")
+
+        try:
+            await page.select_option(
+                "select[formcontrolname='journeyQuota'], .quota select",
+                value=irctc_quota,
+            )
+        except Exception:
+            print(f"[warning] Could not set quota dropdown to {irctc_quota}, proceeding")
 
         # Search
         await page.click("button:has-text('Search')")
@@ -178,7 +199,7 @@ class IRCTCBot:
         # Get first available train
         train_rows = await page.query_selector_all(".train-info, .train-heading")
         if not train_rows:
-            raise ValueError("No trains found for the given route/date/class")
+            raise ValueError("No trains found for the given route/date/class/quota")
 
         # If specific train number given, find it; else pick first available
         for row in train_rows:
@@ -186,16 +207,16 @@ class IRCTCBot:
             if req.train_number and req.train_number not in name:
                 continue
             # Extract train details
-            parts = name.strip().split("\n")
+            parts = [p.strip() for p in name.strip().split("\n") if p.strip()]
             return {
                 "name": parts[0] if parts else "Unknown",
-                "number": req.train_number or parts[1].strip() if len(parts) > 1 else "",
-                "departure": "",
-                "arrival": "",
+                "number": req.train_number or (parts[1] if len(parts) > 1 else ""),
+                "departure": parts[2] if len(parts) > 2 else "",
+                "arrival": parts[3] if len(parts) > 3 else "",
                 "row_element": row,
             }
 
-        raise ValueError("Specified train not found or not available")
+        raise ValueError(f"Train not found or not available for quota={quota_val}")
 
     # ──────────────────────────────────────────────────────────────────────────
     # Select train and class

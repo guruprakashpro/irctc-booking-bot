@@ -55,7 +55,7 @@
     {
       "parameters": {
         "chatId": "={{ $('Extract Message').item.json.chatId }}",
-        "text": "=📋 *Booking Details Parsed:*\n🚉 {{ $json.source }} → {{ $json.destination }}\n📅 {{ $json.journey_date }}\n🎫 {{ $json.travel_class }} | {{ $json.quota }}\n👥 {{ $json.passengers.length }} passenger(s)\n\nReply YES to confirm booking.",
+        "text": "=📋 *Booking Details Parsed:*\n🚉 {{ $json.source }} → {{ $json.destination }}\n📅 {{ $json.journey_date }}\n🎫 Class: {{ $json.travel_class }} | Quota: {{ $json.quota === 'TATKAL' ? '⚡ Tatkal' : $json.quota === 'GN' ? '🎟 General' : $json.quota === 'PT' ? '💎 Premium Tatkal' : $json.quota }}\n👥 {{ $json.passengers.length }} passenger(s)\n💳 Payment: {{ $json.payment_method }}\n\nReply YES to confirm or NO to cancel.",
         "additionalFields": { "parse_mode": "Markdown" }
       },
       "id": "send-confirmation",
