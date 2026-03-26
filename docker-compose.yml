@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  # n8n workflow automation
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin123
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678
+      - GENERIC_TIMEZONE=Asia/Kolkata
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./n8n-workflows:/workflows
+    networks:
+      - bot-network
+
+  # IRCTC booking automation service
+  booking-service:
+    build: ./booking-service
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - IRCTC_USERNAME=${IRCTC_USERNAME}
+      - IRCTC_PASSWORD=${IRCTC_PASSWORD}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - ./booking-service:/app
+      - /tmp/screenshots:/app/screenshots
+    networks:
+      - bot-network
+    shm_size: '2gb'
+
+volumes:
+  n8n_data:
+
+networks:
+  bot-network:
+    driver: bridge

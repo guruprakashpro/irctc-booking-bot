@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+screenshots/
+*.png
+node_modules/
+.n8n/
+venv/

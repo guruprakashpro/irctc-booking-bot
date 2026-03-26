@@ -1,0 +1,149 @@
+{
+  "name": "IRCTC Tatkal Booking via Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"],
+        "additionalFields": {}
+      },
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "credentials": {
+        "telegramApi": { "id": "1", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.first().json;\nconst text = msg?.message?.text || '';\nconst chatId = msg?.message?.chat?.id?.toString() || '';\nconst userId = msg?.message?.from?.id?.toString() || '';\n\n// Check if message looks like a booking request\nconst keywords = ['book','tatkal','train','ticket','irctc'];\nconst isBooking = keywords.some(k => text.toLowerCase().includes(k));\n\nreturn [{ json: { text, chatId, userId, isBooking } }];"
+      },
+      "id": "extract-message",
+      "name": "Extract Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [{ "value1": "={{ $json.isBooking }}", "value2": true }]
+        }
+      },
+      "id": "is-booking-request",
+      "name": "Is Booking Request?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://booking-service:8080/parse",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [{ "name": "message", "value": "={{ $('Extract Message').item.json.text }}" }]
+        },
+        "options": { "timeout": 30000 }
+      },
+      "id": "parse-booking",
+      "name": "Parse Booking Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Message').item.json.chatId }}",
+        "text": "=📋 *Booking Details Parsed:*\n🚉 {{ $json.source }} → {{ $json.destination }}\n📅 {{ $json.journey_date }}\n🎫 {{ $json.travel_class }} | {{ $json.quota }}\n👥 {{ $json.passengers.length }} passenger(s)\n\nReply YES to confirm booking.",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "send-confirmation",
+      "name": "Send Confirmation Request",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 200],
+      "credentials": {
+        "telegramApi": { "id": "1", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "url": "http://booking-service:8080/book",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ ...$('Parse Booking Request').item.json, telegram_chat_id: $('Extract Message').item.json.chatId }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "trigger-booking",
+      "name": "Trigger Booking (Async)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Message').item.json.chatId }}",
+        "text": "=⏳ *Booking in progress!*\nJob ID: `{{ $json.job_id }}`\n\nThis takes 2-5 minutes. I'll notify you with the PNR once confirmed! 🎫",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "notify-booking-started",
+      "name": "Notify Booking Started",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1560, 200],
+      "credentials": {
+        "telegramApi": { "id": "1", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Message').item.json.chatId }}",
+        "text": "ℹ️ I only handle train bookings.\n\nSend: `Book tatkal NDLS to BCT 28/03/2026 3A for Raj Kumar 35 M`",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "not-booking-reply",
+      "name": "Not a Booking",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [900, 420],
+      "credentials": {
+        "telegramApi": { "id": "1", "name": "Telegram Bot" }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('Extract Message').item.json.chatId }}",
+        "text": "=❌ *Could not parse booking:*\n{{ $json.detail || $json.message }}\n\nExample: `Book tatkal NDLS to BCT 28/03/2026 3A for Raj 35 M`",
+        "additionalFields": { "parse_mode": "Markdown" }
+      },
+      "id": "parse-error",
+      "name": "Parse Error Reply",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [1120, 400],
+      "credentials": {
+        "telegramApi": { "id": "1", "name": "Telegram Bot" }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": { "main": [[{ "node": "Extract Message", "type": "main", "index": 0 }]] },
+    "Extract Message": { "main": [[{ "node": "Is Booking Request?", "type": "main", "index": 0 }]] },
+    "Is Booking Request?": {
+      "main": [
+        [{ "node": "Parse Booking Request", "type": "main", "index": 0 }],
+        [{ "node": "Not a Booking", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse Booking Request": {
+      "main": [[{ "node": "Send Confirmation Request", "type": "main", "index": 0 }]],
+      "error": [[{ "node": "Parse Error Reply", "type": "main", "index": 0 }]]
+    },
+    "Send Confirmation Request": { "main": [[{ "node": "Trigger Booking (Async)", "type": "main", "index": 0 }]] },
+    "Trigger Booking (Async)": { "main": [[{ "node": "Notify Booking Started", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["irctc", "telegram", "booking"]
+}
